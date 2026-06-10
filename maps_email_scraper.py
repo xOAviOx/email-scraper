@@ -420,6 +420,7 @@ def main() -> None:
                 dupes = len(listings) - new
                 if dupes:
                     print(f"  ({dupes} already seen under an earlier search)")
+                _write_csv(list(merged.values()), args.output)  # checkpoint
                 if query_num < total_queries:
                     time.sleep(random.uniform(*MAPS_SEARCH_DELAY))
         browser.close()
