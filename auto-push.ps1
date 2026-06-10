@@ -46,7 +46,8 @@ function Sync-ToGitHub {
 
 Write-Host "Auto-push watcher started for: $RepoPath"
 Write-Host "Branch: $Branch | Poll interval: ${IntervalSeconds}s"
-Write-Host "Press Ctrl+C to stop.`n"
+Write-Host "Press Ctrl+C to stop."
+Write-Host ""
 
 # Push anything already pending before entering the watch loop.
 Sync-ToGitHub | Out-Null
