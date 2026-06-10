@@ -447,17 +447,11 @@ def main() -> None:
                     print(f"  site failed ({row['website']}): {exc}", file=sys.stderr)
                 found = f" -> {len(row['emails'])} email(s)" if row["emails"] else ""
                 print(f"  Checking site {done}/{len(with_site)}: {row['name']}{found}")
+                if done % 50 == 0:  # checkpoint every 50 sites
+                    _write_csv(rows, args.output)
 
     # --- Write CSV ----------------------------------------------------------
-    fieldnames = ["category", "location", "name", "website", "phone", "address",
-                  "rating", "emails"]
-    with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            out = {k: row.get(k, "") for k in fieldnames}
-            out["emails"] = ";".join(row["emails"])
-            writer.writerow(out)
+    _write_csv(rows, args.output)
 
     # --- Summary ------------------------------------------------------------
     with_emails = sum(1 for r in rows if r["emails"])
