@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Secrets & local config
+.env
+*.key
+
+# Scraper output
+*.csv
+*.json
+output/
+
+# IDE / tooling
+.claude/
+.cursor/
+.vscode/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini

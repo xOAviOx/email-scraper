@@ -1,0 +1,385 @@
+"""
+Google Maps business email scraper — free, local, no paid APIs.
+
+Pipeline:
+  1. Scrape Google Maps listings per category (Playwright, real browser).
+  2. Visit each business website and harvest emails (requests + BeautifulSoup).
+
+Install:
+    pip install playwright beautifulsoup4 requests
+    playwright install chromium
+
+Run:
+    python maps_email_scraper.py --location "Kanpur"
+    python maps_email_scraper.py --categories "interior designers,dentists" --location "Kanpur" --limit 30 --output leads.csv
+"""
+
+import argparse
+import csv
+import random
+import re
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote, urljoin, urlsplit
+
+import requests
+from bs4 import BeautifulSoup
+
+# Windows consoles often default to cp1252; business names can be anything.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
+
+# ---------------------------------------------------------------------------
+# Config — tweak here
+# ---------------------------------------------------------------------------
+HEADLESS = True  # set False to watch the browser while debugging selectors
+
+DEFAULT_CATEGORIES = ["interior designers", "dentists", "law firms", "restaurants"]
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+REQUEST_TIMEOUT = 10          # seconds per website request
+SITE_DELAY_RANGE = (1.0, 2.0)  # randomized politeness delay between page fetches
+MAX_WORKERS = 5               # thread pool size for website fetching
+CONTACT_PATHS = ["", "/contact", "/contact-us", "/about"]  # "" = homepage
+
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{7,}\d")
+
+# Emails matching these are junk (asset filenames, placeholder domains, trackers)
+JUNK_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js",
+                   ".ico", ".woff", ".woff2", ".ttf", ".mp4", ".pdf", ".webm")
+JUNK_DOMAINS = ("example.com", "example.org", "email.com", "domain.com",
+                "yourdomain.com", "sentry.io", "wixpress.com", "sentry-next.wixpress.com",
+                "mysite.com", "company.com", "godaddy.com", "placeholder.com")
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: Google Maps scraping (single-threaded, Playwright)
+# ---------------------------------------------------------------------------
+def scrape_maps(query: str, limit: int = 50) -> list[dict]:
+    """Search Google Maps for `query`, scroll the results panel, and return
+    a list of dicts: name, website, phone, address, rating."""
+    listings = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=HEADLESS)
+        page = browser.new_page(user_agent=USER_AGENT, viewport={"width": 1280, "height": 900})
+        try:
+            url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
+            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+
+            _dismiss_consent(page)
+
+            # The scrollable results panel. Google shifts class names often,
+            # but role="feed" has been stable for years.
+            feed = page.locator('div[role="feed"]')
+            try:
+                feed.wait_for(state="visible", timeout=15000)
+            except PlaywrightTimeoutError:
+                # No feed: either zero results, or Maps jumped straight to a
+                # single place page. Try the single-place fallback.
+                single = _scrape_single_place(page)
+                if single:
+                    print("  (Maps opened a single place page — captured 1 result)")
+                    return [single]
+                print(f"  WARNING: results panel not found for '{query}' — "
+                      "Maps may have changed its DOM or shown a captcha. "
+                      "Set HEADLESS = False to inspect.", file=sys.stderr)
+                return []
+
+            _scroll_results(page, feed, limit)
+            listings = _extract_listings(page, limit)
+        except PlaywrightTimeoutError:
+            print(f"  WARNING: timed out loading Maps for '{query}'", file=sys.stderr)
+        finally:
+            browser.close()
+    return listings
+
+
+def _dismiss_consent(page) -> None:
+    """Click through the Google cookie-consent interstitial if it appears."""
+    try:
+        if "consent.google" in page.url:
+            for label in ("Accept all", "I agree", "Reject all"):
+                btn = page.locator(f'button:has-text("{label}")').first
+                if btn.count():
+                    btn.click(timeout=5000)
+                    page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    return
+    except Exception:
+        pass  # consent handling is best-effort; the scrape may still work
+
+
+def _scroll_results(page, feed, limit: int) -> None:
+    """Scroll the results feed until we have `limit` listings, hit the end of
+    the list, or stop seeing growth."""
+    stale_rounds = 0
+    last_count = 0
+    while True:
+        count = page.locator('a.hfpxzc').count()
+        if count >= limit:
+            break
+        # "You've reached the end of the list." marker
+        if page.locator('div[role="feed"] span.HlvSq').count() or \
+           page.get_by_text("reached the end of the list").count():
+            break
+        if count == last_count:
+            stale_rounds += 1
+            if stale_rounds >= 5:  # nothing new after 5 scrolls — give up
+                break
+        else:
+            stale_rounds = 0
+            last_count = count
+        try:
+            feed.evaluate("el => el.scrollBy(0, el.scrollHeight)")
+        except Exception:
+            break
+        page.wait_for_timeout(random.uniform(900, 1500))
+
+
+def _extract_listings(page, limit: int) -> list[dict]:
+    """Pull structured fields out of the loaded result cards in one JS pass."""
+    raw = page.evaluate(
+        """() => {
+            const out = [];
+            for (const link of document.querySelectorAll('div[role="feed"] a.hfpxzc')) {
+                const card = link.closest('div.Nv2PK') || link.parentElement;
+                const site = card.querySelector('a[data-value="Website"]');
+                const rating = card.querySelector('span.MW4etd');
+                const lines = Array.from(card.querySelectorAll('.W4Efsd'))
+                    .map(e => e.innerText.trim()).filter(Boolean);
+                out.push({
+                    name: link.getAttribute('aria-label') || '',
+                    website: site ? site.href : '',
+                    rating: rating ? rating.textContent.trim() : '',
+                    lines: lines,
+                });
+            }
+            return out;
+        }"""
+    )
+    listings = []
+    for item in raw[:limit]:
+        phone, address = _parse_card_lines(item["lines"])
+        listings.append({
+            "name": item["name"].strip(),
+            "website": item["website"].strip(),
+            "phone": phone,
+            "address": address,
+            "rating": item["rating"],
+        })
+    return listings
+
+
+def _parse_card_lines(lines: list[str]) -> tuple[str, str]:
+    """Heuristically pull phone + address from a result card's detail lines.
+    Cards look like: 'Dentist · 12/345 Mall Road' / 'Open ⋅ Closes 9 pm · 098765 43210'."""
+    phone = ""
+    address = ""
+    segments = []
+    for line in lines:
+        segments.extend(s.strip() for s in re.split(r"[·⋅|]", line) if s.strip())
+    hours_words = ("open", "close", "24 hours", "opens", "temporarily", "permanently")
+    for seg in segments:
+        if not phone:
+            m = PHONE_RE.search(seg)
+            # avoid mistaking "4.5 (123)"-style ratings or years for phones
+            if m and sum(c.isdigit() for c in m.group()) >= 8:
+                phone = m.group().strip()
+                continue
+        low = seg.lower()
+        if any(w in low for w in hours_words):
+            continue
+        if re.fullmatch(r"[\d.,()\s★]+", seg):  # pure numbers = rating/review count
+            continue
+        # address: prefer the longest remaining segment that has a digit or comma
+        if (any(c.isdigit() for c in seg) or "," in seg) and len(seg) > len(address):
+            address = seg
+    return phone, address
+
+
+def _scrape_single_place(page) -> dict | None:
+    """Fallback when Maps redirects a search straight to one place's page."""
+    try:
+        name = page.locator("h1").first.inner_text(timeout=5000).strip()
+        if not name:
+            return None
+        website = ""
+        site_el = page.locator('a[data-item-id="authority"]').first
+        if site_el.count():
+            website = site_el.get_attribute("href") or ""
+        phone = ""
+        phone_el = page.locator('button[data-item-id^="phone"]').first
+        if phone_el.count():
+            m = PHONE_RE.search(phone_el.get_attribute("data-item-id") or "")
+            phone = m.group() if m else ""
+        address = ""
+        addr_el = page.locator('button[data-item-id="address"]').first
+        if addr_el.count():
+            address = (addr_el.get_attribute("aria-label") or "").replace("Address: ", "").strip()
+        rating = ""
+        rating_el = page.locator('div.F7nice span[aria-hidden="true"]').first
+        if rating_el.count():
+            rating = rating_el.inner_text().strip()
+        return {"name": name, "website": website, "phone": phone,
+                "address": address, "rating": rating}
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: email extraction from business websites (thread pool)
+# ---------------------------------------------------------------------------
+def extract_emails_from_site(url: str) -> list[str]:
+    """Fetch a site's homepage + common contact pages and return deduped,
+    junk-filtered emails found in mailto: links and visible text."""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    base = f"{urlsplit(url).scheme}://{urlsplit(url).netloc}"
+    emails: list[str] = []
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+
+    for path in CONTACT_PATHS:
+        page_url = url if path == "" else urljoin(base, path)
+        time.sleep(random.uniform(*SITE_DELAY_RANGE))
+        try:
+            resp = session.get(page_url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+            if resp.status_code != 200 or "text/html" not in resp.headers.get("Content-Type", "html"):
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.select('a[href^="mailto:"]'):
+                addr = a["href"][7:].split("?")[0].strip()
+                emails.extend(EMAIL_RE.findall(addr))
+            emails.extend(EMAIL_RE.findall(soup.get_text(" ")))
+        except requests.RequestException:
+            continue  # dead page/site — move on
+        except Exception:
+            continue  # malformed HTML etc.
+
+    return _clean_emails(emails)
+
+
+def _clean_emails(emails: list[str]) -> list[str]:
+    """Lowercase, strip trailing dots, drop asset filenames and placeholder
+    domains, dedupe preserving order."""
+    seen = []
+    for email in emails:
+        e = email.lower().strip().strip(".")
+        if "@" not in e:
+            continue
+        local, _, domain = e.rpartition("@")
+        if not local or "." not in domain:
+            continue
+        if e.endswith(JUNK_EXTENSIONS):
+            continue
+        if any(domain == d or domain.endswith("." + d) for d in JUNK_DOMAINS):
+            continue
+        if len(e) > 60 or len(local) > 40:  # minified-JS garbage
+            continue
+        if e not in seen:
+            seen.append(e)
+    return seen
+
+
+# ---------------------------------------------------------------------------
+# Merge / dedupe / output
+# ---------------------------------------------------------------------------
+def _dedupe_key(listing: dict) -> str:
+    """Same business may appear under multiple categories. Collapse on
+    normalized website, falling back to name+phone."""
+    site = listing["website"]
+    if site:
+        parts = urlsplit(site if site.startswith("http") else "https://" + site)
+        host = parts.netloc.lower().removeprefix("www.")
+        return "site:" + host + parts.path.rstrip("/")
+    phone_digits = re.sub(r"\D", "", listing["phone"])
+    return f"namephone:{listing['name'].lower()}|{phone_digits}"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Scrape Google Maps listings by category+location, then "
+                    "harvest emails from each business website.")
+    parser.add_argument("--categories", default=",".join(DEFAULT_CATEGORIES),
+                        help='comma-separated, e.g. "interior designers,dentists"')
+    parser.add_argument("--location", required=True, help='e.g. "Kanpur"')
+    parser.add_argument("--limit", type=int, default=50, help="max results per category")
+    parser.add_argument("--output", default="leads.csv", help="output CSV path")
+    args = parser.parse_args()
+
+    categories = [c.strip() for c in args.categories.split(",") if c.strip()]
+
+    # --- Stage 1: Maps, one category at a time -----------------------------
+    merged: dict[str, dict] = {}  # dedupe key -> listing (first category wins)
+    for i, category in enumerate(categories, 1):
+        query = f"{category} in {args.location}"
+        print(f"\nCategory {i}/{len(categories)}: {category} — searching '{query}'…")
+        listings = scrape_maps(query, args.limit)
+        print(f"Category {i}/{len(categories)}: {category} — scraped {len(listings)} listings")
+        new = 0
+        for listing in listings:
+            if not listing["name"]:
+                continue
+            listing["category"] = category
+            key = _dedupe_key(listing)
+            if key not in merged:
+                merged[key] = listing
+                new += 1
+        dupes = len(listings) - new
+        if dupes:
+            print(f"  ({dupes} already seen under an earlier category)")
+
+    rows = list(merged.values())
+    with_site = [r for r in rows if r["website"]]
+    print(f"\nTotal unique listings: {len(rows)} ({len(with_site)} have a website)")
+
+    # --- Stage 2: websites, concurrent ------------------------------------
+    for row in rows:
+        row["emails"] = []
+    if with_site:
+        print(f"Fetching {len(with_site)} websites with {MAX_WORKERS} workers…")
+        done = 0
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(extract_emails_from_site, r["website"]): r
+                       for r in with_site}
+            for future in as_completed(futures):
+                row = futures[future]
+                done += 1
+                try:
+                    row["emails"] = future.result()
+                except Exception as exc:
+                    print(f"  site failed ({row['website']}): {exc}", file=sys.stderr)
+                found = f" -> {len(row['emails'])} email(s)" if row["emails"] else ""
+                print(f"  Checking site {done}/{len(with_site)}: {row['name']}{found}")
+
+    # --- Write CSV ----------------------------------------------------------
+    fieldnames = ["category", "name", "website", "phone", "address", "rating", "emails"]
+    with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            out = {k: row.get(k, "") for k in fieldnames}
+            out["emails"] = ";".join(row["emails"])
+            writer.writerow(out)
+
+    # --- Summary ------------------------------------------------------------
+    with_emails = sum(1 for r in rows if r["emails"])
+    print(f"\n{'=' * 50}")
+    print(f"Done. Wrote {len(rows)} listings to {args.output}")
+    print(f"Listings with emails: {with_emails}")
+    print("Per category:")
+    for category in categories:
+        cat_rows = [r for r in rows if r["category"] == category]
+        cat_emails = sum(1 for r in cat_rows if r["emails"])
+        print(f"  {category}: {len(cat_rows)} listings, {cat_emails} with emails")
+
+
+if __name__ == "__main__":
+    main()
