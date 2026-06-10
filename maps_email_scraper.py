@@ -84,42 +84,48 @@ JUNK_DOMAINS = ("example.com", "example.org", "email.com", "domain.com",
 # ---------------------------------------------------------------------------
 # Stage 1: Google Maps scraping (single-threaded, Playwright)
 # ---------------------------------------------------------------------------
-def scrape_maps(query: str, limit: int = 50) -> list[dict]:
+def scrape_maps(query: str, limit: int = 50, browser=None) -> list[dict]:
     """Search Google Maps for `query`, scroll the results panel, and return
-    a list of dicts: name, website, phone, address, rating."""
+    a list of dicts: name, website, phone, address, rating.
+
+    Pass an existing Playwright `browser` to reuse it across many searches
+    (much faster for multi-location runs); otherwise one is launched and
+    torn down just for this call."""
+    if browser is None:
+        with sync_playwright() as p:
+            return scrape_maps(query, limit, p.chromium.launch(headless=HEADLESS))
+
     listings = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
-        page = browser.new_page(user_agent=USER_AGENT, viewport={"width": 1280, "height": 900})
+    page = browser.new_page(user_agent=USER_AGENT, viewport={"width": 1280, "height": 900})
+    try:
+        url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
+        page.goto(url, timeout=30000, wait_until="domcontentloaded")
+
+        _dismiss_consent(page)
+
+        # The scrollable results panel. Google shifts class names often,
+        # but role="feed" has been stable for years.
+        feed = page.locator('div[role="feed"]')
         try:
-            url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
-
-            _dismiss_consent(page)
-
-            # The scrollable results panel. Google shifts class names often,
-            # but role="feed" has been stable for years.
-            feed = page.locator('div[role="feed"]')
-            try:
-                feed.wait_for(state="visible", timeout=15000)
-            except PlaywrightTimeoutError:
-                # No feed: either zero results, or Maps jumped straight to a
-                # single place page. Try the single-place fallback.
-                single = _scrape_single_place(page)
-                if single:
-                    print("  (Maps opened a single place page — captured 1 result)")
-                    return [single]
-                print(f"  WARNING: results panel not found for '{query}' — "
-                      "Maps may have changed its DOM or shown a captcha. "
-                      "Set HEADLESS = False to inspect.", file=sys.stderr)
-                return []
-
-            _scroll_results(page, feed, limit)
-            listings = _extract_listings(page, limit)
+            feed.wait_for(state="visible", timeout=15000)
         except PlaywrightTimeoutError:
-            print(f"  WARNING: timed out loading Maps for '{query}'", file=sys.stderr)
-        finally:
-            browser.close()
+            # No feed: either zero results, or Maps jumped straight to a
+            # single place page. Try the single-place fallback.
+            single = _scrape_single_place(page)
+            if single:
+                print("  (Maps opened a single place page — captured 1 result)")
+                return [single]
+            print(f"  WARNING: results panel not found for '{query}' — "
+                  "no results there, or Maps changed its DOM / showed a "
+                  "captcha. Set HEADLESS = False to inspect.", file=sys.stderr)
+            return []
+
+        _scroll_results(page, feed, limit)
+        listings = _extract_listings(page, limit)
+    except PlaywrightTimeoutError:
+        print(f"  WARNING: timed out loading Maps for '{query}'", file=sys.stderr)
+    finally:
+        page.close()
     return listings
 
 
