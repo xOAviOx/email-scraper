@@ -41,6 +41,26 @@ HEADLESS = True  # set False to watch the browser while debugging selectors
 
 DEFAULT_CATEGORIES = ["interior designers", "dentists", "law firms", "restaurants"]
 
+# Used by --worldwide: major business hubs covering every continent.
+DEFAULT_WORLD_CITIES = [
+    # North America
+    "New York", "Los Angeles", "Chicago", "Houston", "Toronto", "Vancouver", "Mexico City",
+    # South America
+    "Sao Paulo", "Buenos Aires", "Bogota", "Lima", "Santiago",
+    # Europe
+    "London", "Paris", "Berlin", "Madrid", "Rome", "Amsterdam", "Vienna",
+    "Warsaw", "Stockholm", "Istanbul",
+    # Africa
+    "Cairo", "Lagos", "Nairobi", "Johannesburg", "Casablanca",
+    # Asia
+    "Mumbai", "Delhi", "Bangalore", "Dubai", "Riyadh", "Singapore", "Bangkok",
+    "Jakarta", "Manila", "Kuala Lumpur", "Hong Kong", "Tokyo", "Seoul",
+    # Oceania
+    "Sydney", "Melbourne", "Auckland",
+]
+
+MAPS_SEARCH_DELAY = (2.0, 4.0)  # randomized pause between Maps searches
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
