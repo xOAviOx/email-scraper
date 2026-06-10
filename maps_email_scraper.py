@@ -347,6 +347,22 @@ def _dedupe_key(listing: dict) -> str:
     return f"namephone:{listing['name'].lower()}|{phone_digits}"
 
 
+CSV_FIELDS = ["category", "location", "name", "website", "phone", "address",
+              "rating", "emails"]
+
+
+def _write_csv(rows: list[dict], path: str) -> None:
+    """Rewrite the output CSV with everything collected so far. Called
+    throughout the run so a crash or Ctrl+C never loses the data."""
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for row in rows:
+            out = {k: row.get(k, "") for k in CSV_FIELDS}
+            out["emails"] = ";".join(row.get("emails") or [])
+            writer.writerow(out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Scrape Google Maps listings by category+location, then "
