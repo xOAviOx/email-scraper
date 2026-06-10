@@ -336,32 +336,60 @@ def main() -> None:
                     "harvest emails from each business website.")
     parser.add_argument("--categories", default=",".join(DEFAULT_CATEGORIES),
                         help='comma-separated, e.g. "interior designers,dentists"')
-    parser.add_argument("--location", required=True, help='e.g. "Kanpur"')
-    parser.add_argument("--limit", type=int, default=50, help="max results per category")
+    parser.add_argument("--location", "--locations", dest="location", default="",
+                        help='comma-separated, e.g. "Kanpur" or "Kanpur,London,New York"')
+    parser.add_argument("--worldwide", action="store_true",
+                        help=f"search a built-in list of {len(DEFAULT_WORLD_CITIES)} "
+                             "major cities across every continent")
+    parser.add_argument("--limit", type=int, default=50,
+                        help="max results per category per location")
     parser.add_argument("--output", default="leads.csv", help="output CSV path")
     args = parser.parse_args()
 
     categories = [c.strip() for c in args.categories.split(",") if c.strip()]
+    locations = [l.strip() for l in args.location.split(",") if l.strip()]
+    if args.worldwide:
+        locations = DEFAULT_WORLD_CITIES + [l for l in locations
+                                            if l not in DEFAULT_WORLD_CITIES]
+    if not locations:
+        parser.error("pass --location (one or more, comma-separated) or --worldwide")
 
-    # --- Stage 1: Maps, one category at a time -----------------------------
-    merged: dict[str, dict] = {}  # dedupe key -> listing (first category wins)
-    for i, category in enumerate(categories, 1):
-        query = f"{category} in {args.location}"
-        print(f"\nCategory {i}/{len(categories)}: {category} — searching '{query}'…")
-        listings = scrape_maps(query, args.limit)
-        print(f"Category {i}/{len(categories)}: {category} — scraped {len(listings)} listings")
-        new = 0
-        for listing in listings:
-            if not listing["name"]:
-                continue
-            listing["category"] = category
-            key = _dedupe_key(listing)
-            if key not in merged:
-                merged[key] = listing
-                new += 1
-        dupes = len(listings) - new
-        if dupes:
-            print(f"  ({dupes} already seen under an earlier category)")
+    total_queries = len(categories) * len(locations)
+    print(f"{len(categories)} categories x {len(locations)} locations = "
+          f"{total_queries} Maps searches (limit {args.limit} each)")
+    if total_queries > 40:
+        print("Heads up: that's a big run — expect roughly "
+              f"{total_queries * 40 // 60} or more minutes for the Maps stage alone.")
+
+    # --- Stage 1: Maps, one query at a time (single shared browser) --------
+    merged: dict[str, dict] = {}  # dedupe key -> listing (first cat/loc wins)
+    query_num = 0
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=HEADLESS)
+        for li, location in enumerate(locations, 1):
+            for ci, category in enumerate(categories, 1):
+                query_num += 1
+                query = f"{category} in {location}"
+                print(f"\n[{query_num}/{total_queries}] Location {li}/{len(locations)}: "
+                      f"{location} — category {ci}/{len(categories)}: {category}")
+                listings = scrape_maps(query, args.limit, browser)
+                print(f"  scraped {len(listings)} listings")
+                new = 0
+                for listing in listings:
+                    if not listing["name"]:
+                        continue
+                    listing["category"] = category
+                    listing["location"] = location
+                    key = _dedupe_key(listing)
+                    if key not in merged:
+                        merged[key] = listing
+                        new += 1
+                dupes = len(listings) - new
+                if dupes:
+                    print(f"  ({dupes} already seen under an earlier search)")
+                if query_num < total_queries:
+                    time.sleep(random.uniform(*MAPS_SEARCH_DELAY))
+        browser.close()
 
     rows = list(merged.values())
     with_site = [r for r in rows if r["website"]]
@@ -387,7 +415,8 @@ def main() -> None:
                 print(f"  Checking site {done}/{len(with_site)}: {row['name']}{found}")
 
     # --- Write CSV ----------------------------------------------------------
-    fieldnames = ["category", "name", "website", "phone", "address", "rating", "emails"]
+    fieldnames = ["category", "location", "name", "website", "phone", "address",
+                  "rating", "emails"]
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
