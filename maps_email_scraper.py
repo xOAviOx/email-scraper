@@ -435,6 +435,12 @@ def main() -> None:
         cat_rows = [r for r in rows if r["category"] == category]
         cat_emails = sum(1 for r in cat_rows if r["emails"])
         print(f"  {category}: {len(cat_rows)} listings, {cat_emails} with emails")
+    if len(locations) > 1:
+        print("Per location:")
+        for location in locations:
+            loc_rows = [r for r in rows if r["location"] == location]
+            loc_emails = sum(1 for r in loc_rows if r["emails"])
+            print(f"  {location}: {len(loc_rows)} listings, {loc_emails} with emails")
 
 
 if __name__ == "__main__":
