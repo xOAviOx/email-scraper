@@ -11,7 +11,8 @@ Install:
 
 Run:
     python maps_email_scraper.py --location "Kanpur"
-    python maps_email_scraper.py --categories "interior designers,dentists" --location "Kanpur" --limit 30 --output leads.csv
+    python maps_email_scraper.py --location "Kanpur,London,New York" --limit 30
+    python maps_email_scraper.py --worldwide --categories "dentists" --limit 20 --output leads.csv
 """
 
 import argparse
