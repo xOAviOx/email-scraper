@@ -25,7 +25,7 @@ function Sync-ToGitHub {
         return $false
     }
 
-    Write-Host "[$timestamp] Changes detected — committing..."
+    Write-Host "[$timestamp] Changes detected - committing..."
     git commit -m "Auto-sync: $timestamp" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "[$timestamp] Commit failed (maybe nothing staged)."
