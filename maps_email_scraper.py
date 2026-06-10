@@ -196,12 +196,29 @@ def _extract_listings(page, limit: int) -> list[dict]:
         phone, address = _parse_card_lines(item["lines"])
         listings.append({
             "name": item["name"].strip(),
-            "website": item["website"].strip(),
+            "website": _clean_website(item["website"].strip()),
             "phone": phone,
             "address": address,
             "rating": item["rating"],
         })
     return listings
+
+
+def _clean_website(url: str) -> str:
+    """Sponsored listings link through google.com/aclk click trackers instead
+    of the real site. Recover the destination from the adurl/q param when
+    present; otherwise drop the URL so we don't 'find' Google's own emails."""
+    if not url:
+        return ""
+    host = urlsplit(url).netloc.lower()
+    if host == "google.com" or host.endswith(".google.com"):
+        qs = parse_qs(urlsplit(url).query)
+        for param in ("adurl", "q"):
+            for candidate in qs.get(param, []):
+                if candidate.startswith("http"):
+                    return candidate
+        return ""
+    return url
 
 
 def _parse_card_lines(lines: list[str]) -> tuple[str, str]:
