@@ -315,8 +315,12 @@ def _scrape_single_place(page) -> dict | None:
         phone = ""
         phone_el = page.locator('button[data-item-id^="phone"]').first
         if phone_el.count():
-            m = PHONE_RE.search(phone_el.get_attribute("data-item-id") or "")
-            phone = m.group() if m else ""
+            # aria-label ("Phone: 022 1234 5678") is nicely formatted; the
+            # data-item-id ("phone:tel:+91...") is the fallback.
+            src = (phone_el.get_attribute("aria-label") or "") + " " + \
+                  (phone_el.get_attribute("data-item-id") or "")
+            m = PHONE_RE.search(src)
+            phone = m.group().strip() if m else ""
         address = ""
         addr_el = page.locator('button[data-item-id="address"]').first
         if addr_el.count():
