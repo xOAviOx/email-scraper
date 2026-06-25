@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · LeadHarvest{% endblock %}
+{% block nav %}
+  <span>{{ user.email }} &nbsp;
+    <form method="post" action="/logout" style="display:inline">
+      <button class="ghost" style="padding:5px 12px" type="submit">Log out</button>
+    </form>
+  </span>
+{% endblock %}
+{% block content %}
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="muted">Leads left today</div>
+        <div class="quota">{{ remaining }} <span class="muted" style="font-size:14px">/ {{ user.daily_quota }}</span></div>
+      </div>
+      <div class="muted" style="text-align:right">Resets at midnight.<br>Need more? Upgrade is coming.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>New scrape</h2>
+    <form method="post" action="/jobs">
+      <label for="categories">Categories <span class="muted">(comma-separated)</span></label>
+      <input id="categories" type="text" name="categories" placeholder="dentists, interior designers" required>
+      <label for="locations">Locations <span class="muted">(comma-separated)</span></label>
+      <input id="locations" type="text" name="locations" placeholder="Mumbai, Pune" required>
+      <label for="limit_per_query">Results per category/location</label>
+      <input id="limit_per_query" type="number" name="limit_per_query" value="20" min="1" max="50">
+      <div style="margin-top:16px">
+        <button type="submit" {% if remaining <= 0 %}disabled{% endif %}>
+          {% if remaining <= 0 %}Daily limit reached{% else %}Start scrape{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Your jobs</h2>
+    {% if not jobs %}
+      <p class="muted">No jobs yet. Start one above.</p>
+    {% else %}
+    <table>
+      <thead><tr><th>#</th><th>Search</th><th>Status</th><th>Leads</th><th>Download</th></tr></thead>
+      <tbody>
+      {% for j in jobs %}
+        <tr data-job="{{ j.id }}" data-status="{{ j.status }}">
+          <td>{{ j.id }}</td>
+          <td>{{ j.categories }}<br><span class="muted">{{ j.locations }}</span></td>
+          <td class="js-status"><span class="pill {{ j.status }}">{{ j.status }}</span>
+              <span class="js-pct muted"></span></td>
+          <td class="js-count">{{ j.result_count if j.status == 'done' else '—' }}</td>
+          <td class="js-dl dl">
+            {% if j.status == 'done' %}
+              {% for f in formats %}<a href="/jobs/{{ j.id }}/download?format={{ f }}">{{ f|upper }}</a>{% endfor %}
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <p class="muted">Use responsibly. You're accountable for how you contact the people in your exports
+     (DPDP / GDPR / CAN-SPAM, plus the source sites' terms).</p>
+
+  <script>
+    const FORMATS = {{ formats|tojson }};
+    // Poll any job that isn't in a terminal state until it finishes.
+    async function poll(row) {
+      const id = row.dataset.job;
+      try {
+        const r = await fetch(`/jobs/${id}/status`);
+        if (!r.ok) return;
+        const j = await r.json();
+        row.querySelector('.js-status').innerHTML =
+          `<span class="pill ${j.status}">${j.status}</span>` +
+          (j.status === 'running' ? ` <span class="muted">${j.phase} ${j.percent}%</span>` : '');
+        if (j.status === 'done') {
+          row.querySelector('.js-count').textContent = j.result_count;
+          row.querySelector('.js-dl').innerHTML =
+            FORMATS.map(f => `<a href="/jobs/${id}/download?format=${f}">${f.toUpperCase()}</a>`).join('');
+          row.dataset.status = 'done';
+        } else if (j.status === 'failed') {
+          row.querySelector('.js-status').innerHTML = `<span class="pill failed">failed</span>`;
+          row.dataset.status = 'failed';
+        }
+      } catch (e) { /* transient — try again next tick */ }
+    }
+    function tick() {
+      document.querySelectorAll('tr[data-job]').forEach(row => {
+        if (row.dataset.status !== 'done' && row.dataset.status !== 'failed') poll(row);
+      });
+    }
+    setInterval(tick, 3000); tick();
+  </script>
+{% endblock %}
