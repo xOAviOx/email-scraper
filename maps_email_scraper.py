@@ -383,6 +383,88 @@ def _write_csv(rows: list[dict], path: str) -> None:
             writer.writerow(out)
 
 
+def run_scrape(categories, locations, limit=50, max_leads=None,
+               fetch_emails=True, output_path=None, progress=None) -> list[dict]:
+    """Programmatic entry point shared by the CLI and the web worker.
+
+    Runs Stage 1 (Maps) then Stage 2 (website emails) and returns the list of
+    lead dicts. `max_leads` caps the total unique listings collected (used to
+    enforce per-user daily quotas); `progress(phase, done, total, msg)` is an
+    optional callback for job tracking; `output_path` enables incremental CSV
+    checkpointing so a crash never loses data."""
+    def _emit(phase, done, total, msg):
+        if progress:
+            try:
+                progress(phase, done, total, msg)
+            except Exception:
+                pass  # progress reporting must never break the scrape
+
+    categories = [c for c in categories if c]
+    locations = [l for l in locations if l]
+    total_queries = len(categories) * len(locations)
+
+    # --- Stage 1: Maps, one query at a time (single shared browser) --------
+    merged: dict[str, dict] = {}  # dedupe key -> listing (first cat/loc wins)
+    query_num = 0
+    capped = False
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=HEADLESS)
+        for location in locations:
+            if capped:
+                break
+            for category in categories:
+                query_num += 1
+                _emit("maps", query_num, total_queries, f"{category} in {location}")
+                listings = scrape_maps(f"{category} in {location}", limit, browser)
+                for listing in listings:
+                    if not listing["name"]:
+                        continue
+                    listing["category"] = category
+                    listing["location"] = location
+                    key = _dedupe_key(listing)
+                    if key not in merged:
+                        merged[key] = listing
+                    if max_leads and len(merged) >= max_leads:
+                        capped = True  # hit the quota cap — stop collecting
+                        break
+                if output_path:
+                    _write_csv(list(merged.values()), output_path)  # checkpoint
+                if capped:
+                    break
+                if query_num < total_queries:
+                    time.sleep(random.uniform(*MAPS_SEARCH_DELAY))
+        browser.close()
+
+    rows = list(merged.values())
+    if max_leads:
+        rows = rows[:max_leads]
+    for row in rows:
+        row.setdefault("emails", [])
+
+    # --- Stage 2: websites, concurrent ------------------------------------
+    if fetch_emails:
+        with_site = [r for r in rows if r["website"]]
+        if with_site:
+            done = 0
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+                futures = {pool.submit(extract_emails_from_site, r["website"]): r
+                           for r in with_site}
+                for future in as_completed(futures):
+                    row = futures[future]
+                    done += 1
+                    try:
+                        row["emails"] = future.result()
+                    except Exception:
+                        row["emails"] = []
+                    _emit("emails", done, len(with_site), row["name"])
+                    if output_path and done % 50 == 0:  # checkpoint
+                        _write_csv(rows, output_path)
+
+    if output_path:
+        _write_csv(rows, output_path)
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Scrape Google Maps listings by category+location, then "
@@ -421,64 +503,14 @@ def main() -> None:
         print("Heads up: that's a big run — expect roughly "
               f"{total_queries * 40 // 60} or more minutes for the Maps stage alone.")
 
-    # --- Stage 1: Maps, one query at a time (single shared browser) --------
-    merged: dict[str, dict] = {}  # dedupe key -> listing (first cat/loc wins)
-    query_num = 0
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
-        for li, location in enumerate(locations, 1):
-            for ci, category in enumerate(categories, 1):
-                query_num += 1
-                query = f"{category} in {location}"
-                print(f"\n[{query_num}/{total_queries}] Location {li}/{len(locations)}: "
-                      f"{location} — category {ci}/{len(categories)}: {category}")
-                listings = scrape_maps(query, args.limit, browser)
-                print(f"  scraped {len(listings)} listings")
-                new = 0
-                for listing in listings:
-                    if not listing["name"]:
-                        continue
-                    listing["category"] = category
-                    listing["location"] = location
-                    key = _dedupe_key(listing)
-                    if key not in merged:
-                        merged[key] = listing
-                        new += 1
-                dupes = len(listings) - new
-                if dupes:
-                    print(f"  ({dupes} already seen under an earlier search)")
-                _write_csv(list(merged.values()), args.output)  # checkpoint
-                if query_num < total_queries:
-                    time.sleep(random.uniform(*MAPS_SEARCH_DELAY))
-        browser.close()
+    # Stage 1 (Maps) + Stage 2 (emails) live in run_scrape() so the web
+    # worker can reuse them; the CLI just feeds it the parsed args and prints
+    # progress to the console as it goes.
+    def _console(phase, done, total, msg):
+        print(f"  [{phase} {done}/{total}] {msg}")
 
-    rows = list(merged.values())
-    with_site = [r for r in rows if r["website"]]
-    print(f"\nTotal unique listings: {len(rows)} ({len(with_site)} have a website)")
-
-    # --- Stage 2: websites, concurrent ------------------------------------
-    for row in rows:
-        row["emails"] = []
-    if with_site:
-        print(f"Fetching {len(with_site)} websites with {MAX_WORKERS} workers…")
-        done = 0
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(extract_emails_from_site, r["website"]): r
-                       for r in with_site}
-            for future in as_completed(futures):
-                row = futures[future]
-                done += 1
-                try:
-                    row["emails"] = future.result()
-                except Exception as exc:
-                    print(f"  site failed ({row['website']}): {exc}", file=sys.stderr)
-                found = f" -> {len(row['emails'])} email(s)" if row["emails"] else ""
-                print(f"  Checking site {done}/{len(with_site)}: {row['name']}{found}")
-                if done % 50 == 0:  # checkpoint every 50 sites
-                    _write_csv(rows, args.output)
-
-    # --- Write CSV ----------------------------------------------------------
-    _write_csv(rows, args.output)
+    rows = run_scrape(categories, locations, limit=args.limit,
+                      output_path=args.output, progress=_console)
 
     # --- Summary ------------------------------------------------------------
     with_emails = sum(1 for r in rows if r["emails"])
