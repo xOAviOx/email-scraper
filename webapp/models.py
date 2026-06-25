@@ -5,6 +5,7 @@ The job queue is the `jobs` table itself — the worker polls for rows in the
 or Celery; swap in RQ/Celery later if you outgrow DB polling.
 """
 
+import os
 import secrets
 from datetime import date, datetime
 
@@ -13,7 +14,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
 
-DEFAULT_DAILY_QUOTA = 100  # leads a free user may collect per day
+# Leads a user may collect per day. Override with the DAILY_QUOTA env var.
+DEFAULT_DAILY_QUOTA = int(os.environ.get("DAILY_QUOTA", "100"))
 
 
 def _new_token() -> str:
