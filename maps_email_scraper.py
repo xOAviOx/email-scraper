@@ -59,6 +59,26 @@ DEFAULT_WORLD_CITIES = [
     "Sydney", "Melbourne", "Auckland",
 ]
 
+# Used by --india: Indian Tier 1 + Tier 2 cities (per the widely used
+# RBI/HRA city classification). Tier 1 = the 8 metros; Tier 2 = the major
+# secondary cities. De-duped, ordered tier 1 first.
+INDIA_TIER1_CITIES = [
+    "Mumbai", "Delhi", "Bangalore", "Hyderabad",
+    "Ahmedabad", "Chennai", "Kolkata", "Pune",
+]
+INDIA_TIER2_CITIES = [
+    "Agra", "Ajmer", "Aligarh", "Amritsar", "Aurangabad", "Bareilly",
+    "Bhopal", "Bhubaneswar", "Chandigarh", "Coimbatore", "Dehradun",
+    "Faridabad", "Ghaziabad", "Guwahati", "Gwalior", "Indore", "Jaipur",
+    "Jalandhar", "Jammu", "Jamshedpur", "Jodhpur", "Kanpur", "Kochi",
+    "Lucknow", "Ludhiana", "Madurai", "Mangalore", "Meerut", "Moradabad",
+    "Mysore", "Nagpur", "Nashik", "Noida", "Patna", "Raipur", "Rajkot",
+    "Ranchi", "Salem", "Solapur", "Srinagar", "Surat",
+    "Thiruvananthapuram", "Tiruchirappalli", "Vadodara", "Varanasi",
+    "Vijayawada", "Visakhapatnam", "Warangal",
+]
+INDIA_TIER1_TIER2_CITIES = INDIA_TIER1_CITIES + INDIA_TIER2_CITIES
+
 MAPS_SEARCH_DELAY = (2.0, 4.0)  # randomized pause between Maps searches
 
 USER_AGENT = (
@@ -374,6 +394,9 @@ def main() -> None:
     parser.add_argument("--worldwide", action="store_true",
                         help=f"search a built-in list of {len(DEFAULT_WORLD_CITIES)} "
                              "major cities across every continent")
+    parser.add_argument("--india", action="store_true",
+                        help=f"search a built-in list of {len(INDIA_TIER1_TIER2_CITIES)} "
+                             "Indian Tier 1 + Tier 2 cities")
     parser.add_argument("--limit", type=int, default=50,
                         help="max results per category per location")
     parser.add_argument("--output", default="leads.csv", help="output CSV path")
@@ -384,8 +407,12 @@ def main() -> None:
     if args.worldwide:
         locations = DEFAULT_WORLD_CITIES + [l for l in locations
                                             if l not in DEFAULT_WORLD_CITIES]
+    if args.india:
+        locations = INDIA_TIER1_TIER2_CITIES + [l for l in locations
+                                                if l not in INDIA_TIER1_TIER2_CITIES]
     if not locations:
-        parser.error("pass --location (one or more, comma-separated) or --worldwide")
+        parser.error("pass --location (one or more, comma-separated), "
+                     "--india, or --worldwide")
 
     total_queries = len(categories) * len(locations)
     print(f"{len(categories)} categories x {len(locations)} locations = "

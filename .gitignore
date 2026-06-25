@@ -1,4 +1,4 @@
-# Python
+# Python bytecode / envs
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -9,19 +9,17 @@ env/
 # Secrets & local config
 .env
 *.key
+*.pem
 
-# Scraper output
-*.csv
-*.json
-output/
-
-# IDE / tooling
+# Editor / tooling
 .claude/
 .cursor/
 .vscode/
-*.log
 
-# OS
+# OS junk
 Thumbs.db
 .DS_Store
 Desktop.ini
+
+# NOTE: scraper output (*.csv, *.xlsx, *.log) is intentionally tracked
+# so leads data is backed up to GitHub.
