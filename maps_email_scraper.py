@@ -206,6 +206,7 @@ def _extract_listings(page, limit: int) -> list[dict]:
                     website: site ? site.href : '',
                     rating: rating ? rating.textContent.trim() : '',
                     lines: lines,
+                    href: link.href || '',
                 });
             }
             return out;
@@ -220,8 +221,40 @@ def _extract_listings(page, limit: int) -> list[dict]:
             "phone": phone,
             "address": address,
             "rating": item["rating"],
+            "href": item.get("href", ""),
         })
     return listings
+
+
+def _enrich_listings(page, listings: list[dict]) -> None:
+    """Maps search cards no longer carry phone or website — those only live on
+    each place's detail panel. For any listing still missing them, open its
+    place page and fill in phone, website, and (if needed) address.
+
+    This is the slow part of Stage 1 (one navigation per place), but it's the
+    only reliable way to get phones and the website URLs the email stage needs."""
+    for item in listings:
+        url = item.get("href")
+        if not url or (item["phone"] and item["website"]):
+            continue
+        try:
+            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            try:
+                page.wait_for_selector("h1", timeout=8000)
+            except PlaywrightTimeoutError:
+                pass
+            page.wait_for_timeout(600)  # let the side panel's buttons render
+            detail = _scrape_single_place(page)
+        except Exception:
+            continue  # one bad place page shouldn't sink the whole query
+        if not detail:
+            continue
+        if not item["website"] and detail.get("website"):
+            item["website"] = _clean_website(detail["website"])
+        if not item["phone"] and detail.get("phone"):
+            item["phone"] = detail["phone"]
+        if not item["address"] and detail.get("address"):
+            item["address"] = detail["address"]
 
 
 def _clean_website(url: str) -> str:
