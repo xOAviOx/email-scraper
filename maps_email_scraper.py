@@ -142,6 +142,7 @@ def scrape_maps(query: str, limit: int = 50, browser=None) -> list[dict]:
 
         _scroll_results(page, feed, limit)
         listings = _extract_listings(page, limit)
+        _enrich_listings(page, listings)  # phone + website from detail panels
     except PlaywrightTimeoutError:
         print(f"  WARNING: timed out loading Maps for '{query}'", file=sys.stderr)
     finally:
