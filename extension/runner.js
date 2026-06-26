@@ -343,6 +343,7 @@ function stop() {
 
 // --- wire up ---------------------------------------------------------------
 els.connect.addEventListener("click", connect);
+els.signout.addEventListener("click", signOut);
 els.start.addEventListener("click", start);
 els.stop.addEventListener("click", stop);
 window.addEventListener("beforeunload", (e) => {
