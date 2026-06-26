@@ -9,9 +9,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from webapp.main import app
-from webapp.db import SessionLocal
+from webapp.db import SessionLocal, init_db
 from webapp import models
 
+init_db()  # startup event only fires under `with TestClient(...)`, so do it here
 client = TestClient(app)
 
 # Register a user via the web form, then read their api_token from the DB.
