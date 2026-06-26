@@ -25,5 +25,8 @@ Thumbs.db
 .DS_Store
 Desktop.ini
 
-# NOTE: scraper output (*.csv, *.xlsx, *.log) is intentionally tracked
-# so leads data is backed up to GitHub.
+# Scraper output & runtime data — kept local, not in version control
+*.log
+*.csv
+*.xlsx
+data/
