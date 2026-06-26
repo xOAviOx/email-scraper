@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "LeadHarvest Collector",
+  "version": "0.1.0",
+  "description": "Run your LeadHarvest Google Maps scrapes from your own browser and IP, then send the leads back to your account.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open LeadHarvest Collector"
+  }
+}
