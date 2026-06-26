@@ -12,12 +12,13 @@ import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import exporters, models, security
+from . import api, exporters, models, security
 from .db import SessionLocal, init_db
 
 BASE_DIR = Path(__file__).resolve().parent
