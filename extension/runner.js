@@ -112,12 +112,31 @@ async function connect() {
     setStatus(`${me.email} · ${me.remaining_quota}/${me.daily_quota} left today`, "ok");
     log(`Connected as ${me.email}. Quota remaining today: ${me.remaining_quota}.`);
     els.start.disabled = false;
+    els.signout.disabled = false;
   } catch (e) {
     api = null;
     els.start.disabled = true;
+    els.signout.disabled = true;
     setStatus("connection failed", "err");
     log(`Connect failed: ${e.message}`);
   }
+}
+
+// --- sign out --------------------------------------------------------------
+async function signOut() {
+  if (running) {
+    log("Stop collecting before signing out.");
+    return;
+  }
+  await chrome.storage.local.remove("token");
+  els.token.value = "";
+  api = null;
+  els.start.disabled = true;
+  els.signout.disabled = true;
+  setProgress(0, 0);
+  els.phase.textContent = "";
+  setStatus("not connected");
+  log("Signed out. Token cleared from this browser.");
 }
 
 // --- scraping one Maps query ----------------------------------------------
