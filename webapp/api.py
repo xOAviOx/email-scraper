@@ -86,6 +86,18 @@ def _dedupe_key(row: dict) -> str:
     return f"namephone:{(row.get('name', '') or '').lower()}|{phone_digits}"
 
 
+def _normalize_emails(emails: list[str]) -> list[str]:
+    """Lowercase + dedupe (order-preserving). The extension already runs the
+    full junk filter client-side; this is a cheap last line of defense so the
+    stored CSV never holds case-duplicates regardless of who posts."""
+    seen: list[str] = []
+    for e in emails or []:
+        norm = (e or "").strip().lower()
+        if norm and norm not in seen:
+            seen.append(norm)
+    return seen
+
+
 def _existing_keys(path: Path) -> set[str]:
     keys: set[str] = set()
     if path.exists():
