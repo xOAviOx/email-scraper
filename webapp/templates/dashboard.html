@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Dashboard · LeadHarvest{% endblock %}
 {% block nav %}
-  <span>{{ user.email }} &nbsp;
+  <span style="color:#fff;display:inline-flex;align-items:center;gap:10px">
+    {{ user.email }}
     <form method="post" action="/logout" style="display:inline">
-      <button class="ghost" style="padding:5px 12px" type="submit">Log out</button>
+      <button type="submit"
+        style="padding:5px 12px;background:transparent;color:#fff;
+               border:1px solid rgba(255,255,255,.65);border-radius:7px;
+               cursor:pointer;font:inherit;font-weight:600">Log out</button>
     </form>
   </span>
 {% endblock %}
