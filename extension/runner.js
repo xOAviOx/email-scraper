@@ -13,9 +13,9 @@ const EMAIL_CONCURRENCY = 5;
 // --- DOM handles -----------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const els = {
-  server: $("server"), token: $("token"), connect: $("connect"), status: $("status"),
-  start: $("start"), stop: $("stop"), phase: $("phase"), progress: $("progress"),
-  log: $("log"),
+  server: $("server"), token: $("token"), connect: $("connect"), signout: $("signout"),
+  status: $("status"), start: $("start"), stop: $("stop"), phase: $("phase"),
+  progress: $("progress"), log: $("log"),
 };
 
 let api = null;
