@@ -30,6 +30,20 @@ app.add_middleware(
     secret_key=os.environ.get("SECRET_KEY", "dev-insecure-change-me"),
 )
 
+# The extension talks to /api/* from a chrome-extension:// origin. Auth there
+# is a Bearer token (not cookies), so a permissive CORS policy is safe; lock it
+# down with API_CORS_ORIGINS (comma-separated) in production if you prefer.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in
+                   os.environ.get("API_CORS_ORIGINS", "*").split(",") if o.strip()],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Token-authed endpoints the browser extension uses to claim jobs and post leads.
+app.include_router(api.router)
+
 
 @app.on_event("startup")
 def _startup() -> None:
