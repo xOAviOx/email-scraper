@@ -127,7 +127,7 @@ def _append_leads(job_id: int, leads: list["LeadIn"]) -> int:
                 "phone": lead.phone or "",
                 "address": lead.address or "",
                 "rating": lead.rating or "",
-                "emails": ";".join(lead.emails or []),
+                "emails": ";".join(_normalize_emails(lead.emails)),
             }
             key = _dedupe_key(row)
             if key in keys:
