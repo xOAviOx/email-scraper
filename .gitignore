@@ -11,6 +11,10 @@ env/
 *.key
 *.pem
 
+# Local database — contains password hashes + API tokens, never commit
+*.db
+webapp.db
+
 # Editor / tooling
 .claude/
 .cursor/
