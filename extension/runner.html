@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LeadHarvest Collector</title>
+  <style>
+    :root { --ink:#1f2937; --line:#e5e7eb; --brand:#1f4e78; --bg:#f8fafc; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+           color:var(--ink); background:var(--bg); }
+    header { background:var(--brand); color:#fff; padding:14px 22px; font-weight:700;
+             letter-spacing:.3px; }
+    main { max-width:760px; margin:24px auto; padding:0 18px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:10px;
+            padding:20px; margin-bottom:18px; }
+    h2 { color:var(--brand); margin-top:0; font-size:18px; }
+    label { display:block; font-weight:600; margin:12px 0 4px; font-size:14px; }
+    input { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:7px;
+            font:inherit; }
+    button { background:var(--brand); color:#fff; border:0; border-radius:7px;
+             padding:10px 18px; cursor:pointer; font-weight:600; font:inherit; }
+    button.ghost { background:transparent; color:var(--brand); border:1px solid var(--brand); }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .muted { color:#6b7280; font-size:13px; }
+    .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px;
+            font-weight:600; background:#e5e7eb; color:#374151; }
+    .pill.ok { background:#dcfce7; color:#166534; }
+    .pill.err { background:#fee2e2; color:#991b1b; }
+    .pill.run { background:#dbeafe; color:#1e40af; }
+    .bar { height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin-top:10px; }
+    .bar > span { display:block; height:100%; width:0; background:var(--brand); transition:width .3s; }
+    #log { font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+           background:#0f172a; color:#cbd5e1; border-radius:8px; padding:12px;
+           height:260px; overflow:auto; white-space:pre-wrap; }
+    .hint { background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:10px 12px;
+            border-radius:8px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <header>🌾 LeadHarvest Collector</header>
+  <main>
+    <div class="card">
+      <h2>Connection</h2>
+      <p class="muted" style="margin-top:0">
+        Copy the <b>Server URL</b> and <b>API token</b> from your LeadHarvest dashboard.
+      </p>
+      <label for="server">Server URL</label>
+      <input id="server" type="text" placeholder="https://your-leadharvest-host/">
+      <label for="token">API token</label>
+      <input id="token" type="password" placeholder="paste your token">
+      <div class="row" style="margin-top:14px">
+        <button id="connect">Connect</button>
+        <span id="status" class="pill">not connected</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Collector</h2>
+      <p class="muted" style="margin-top:0">
+        Claims your <b>queued</b> jobs one at a time and scrapes them from this browser
+        (your IP). Create jobs on the LeadHarvest dashboard first.
+      </p>
+      <div class="hint">
+        Tip: sign in to Google Maps in this browser and run a quick manual search once,
+        so consent screens are out of the way. Keep this tab open while it works.
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="start" disabled>Start collecting</button>
+        <button id="stop" class="ghost" disabled>Stop</button>
+        <span id="phase" class="muted"></span>
+      </div>
+      <div class="bar"><span id="progress"></span></div>
+    </div>
+
+    <div class="card">
+      <h2>Activity</h2>
+      <div id="log"></div>
+    </div>
+  </main>
+  <script type="module" src="runner.js"></script>
+</body>
+</html>
