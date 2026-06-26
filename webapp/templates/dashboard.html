@@ -21,6 +21,22 @@
   </div>
 
   <div class="card">
+    <h2>🧩 Browser extension</h2>
+    <p class="muted" style="margin-top:0">
+      Run your queued scrapes from your <b>own browser and IP</b> with the LeadHarvest
+      Collector extension — far less likely to get rate-limited than the shared server.
+      Install it (Chrome/Edge), paste the details below, then click <b>Start collecting</b>.
+    </p>
+    <label>Server URL</label>
+    <input type="text" id="srv" readonly value="{{ request.base_url }}"
+           onclick="this.select()">
+    <label>Your API token</label>
+    <input type="text" id="tok" readonly value="{{ user.api_token }}"
+           onclick="this.select()">
+    <p class="muted">Keep this token secret — it grants access to your account's jobs and quota.</p>
+  </div>
+
+  <div class="card">
     <h2>New scrape</h2>
     <form method="post" action="/jobs">
       <label for="categories">Categories <span class="muted">(comma-separated)</span></label>
