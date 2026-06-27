@@ -1,7 +1,7 @@
 # LeadHarvest — web front-end for the scraper
 
 A small SaaS-shaped wrapper around `maps_email_scraper.py`. Users sign up, run a
-scrape within a **daily lead quota** (default 100), watch progress, and download
+scrape within a **daily lead quota** (default 400), watch progress, and download
 results as **CSV / XLSX / JSON** when the job finishes.
 
 ## How it fits together

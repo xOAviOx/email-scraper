@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
 # Leads a user may collect per day. Override with the DAILY_QUOTA env var.
-DEFAULT_DAILY_QUOTA = int(os.environ.get("DAILY_QUOTA", "150"))
+DEFAULT_DAILY_QUOTA = int(os.environ.get("DAILY_QUOTA", "400"))
 
 
 def _new_token() -> str:
